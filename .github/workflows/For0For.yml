@@ -17,30 +17,38 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v2
 
-    - name: Assign target
+    - name: assign target and fetch files
       id: assign-target
       run: |
-        if [ -z "${{ github.event.inputs.target_url }}" ]; then
-          target_url=$(curl -s https://github.com/arkadiyt/bounty-targets-data/raw/refs/heads/main/data/wildcards.txt | shuf -n 1)
+        if [ -n "${{ github.event.inputs.target_url }}" ]; then
+          TARGET="${{ github.event.inputs.target_url }}"
         else
-          target_url="${{ github.event.inputs.target_url }}"
+          TARGET=$(curl -s https://github.com/arkadiyt/bounty-targets-data/raw/refs/heads/main/data/wildcards.txt | shuf -n 1)
         fi
-        echo "target_url=$target_url" >> $GITHUB_ENV
-
-    - name: Fetch files from archive.org
-      run: |
-        wget -qO- "https://web.archive.org/cdx/search/cdx?url=${{ env.target_url }}/*&collapse=urlkey&output=text&fl=original&filter=original:.*\.(sql|db|backup|yml|yaml|ini|config|crt|pem|key|asc)$" | while read file; do echo 'https://web.archive.org/web/*/'$file >> files.txt; done
+        echo "Selected target: $TARGET"
+        
+        wget -qO- "https://web.archive.org/cdx/search/cdx?url=${TARGET}/*&collapse=urlkey&output=text&fl=original&filter=original:.*\.(sql|db|backup|yml|yaml|ini|config|crt|pem|key|asc)$" | \
+        while read file; do 
+          echo "https://web.archive.org/web/*/$file" >> files.txt
+        done
+        
+        touch files.txt
 
     - name: Count file exts
       run: |
-        awk -F. '{print $NF}' files.txt | sort | uniq -c > ext-counts.txt
+        if [ -s files.txt ]; then
+          awk -F. '{print $NF}' files.txt | sort | uniq -c > ext-counts.txt
+        else
+          echo "No files found"
+        fi
 
     - name: Notify Discord
       env:
         WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       run: |
-        file_count=$(cat files.txt | wc -l)
-        if [ "$file_count" -gt 0 ]; then
+        if [ -s files.txt ] && [ $(cat files.txt | wc -l) -gt 0 ]; then
+          file_count=$(cat files.txt | wc -l)
           extension_counts=$(awk '{print $2 ": " $1}' ext-counts.txt | tr '\n' '\n')
-          target_domain=$(echo "${{ env.target_url }}" | awk -F/ '{print $3}')
+          target_domain=$(echo "$TARGET" | awk -F/ '{print $3}')
           curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"Found $file_count high-critic files of $target_domain! \n↓ Found exts ↓ \n$extension_counts\"}" $WEBHOOK_URL
+        fi
