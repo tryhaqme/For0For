@@ -1,4 +1,4 @@
-name: For0For
+name: Sensitive Files Scanner
 
 on:
   schedule:
@@ -6,50 +6,47 @@ on:
   workflow_dispatch:
     inputs:
       target_url:
-        description: 'Enter your target!'
+        description: 'Enter you target!'
         required: false
+        type: string
 
 jobs:
   For0For:
     runs-on: ubuntu-latest
-
+    
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
-
-    - name: assign target and fetch files
-      id: assign-target
+      uses: actions/checkout@v3
+      
+    - name: setup
+      run: |
+        chmod +x ./For0For.sh
+        sudo apt-get update
+        sudo apt-get install -y curl jq
+        
+    - name: run
+      id: scan
       run: |
         if [ -n "${{ github.event.inputs.target_url }}" ]; then
-          echo "TARGET=${{ github.event.inputs.target_url }}" >> $GITHUB_ENV
+          output=$(./For0For.sh "${{ github.event.inputs.target_url }}")
         else
-          echo "TARGET=$(curl -s https://github.com/arkadiyt/bounty-targets-data/raw/refs/heads/main/data/wildcards.txt | shuf -n 1)" >> $GITHUB_ENV
+          output=$(./For0For.sh)
         fi
-        
-        echo "Selected target: ${{ env.TARGET }}"
-        
-        wget -qO- "https://web.archive.org/cdx/search/cdx?url=${{ env.TARGET }}/*&collapse=urlkey&output=text&fl=original&filter=original:.*\.(sql|db|backup|yml|yaml|ini|csv|config|crt|pem|key|asc)$" | \
-        while read file; do 
-          echo "https://web.archive.org/web/*/$file" >> files.txt
-        done
-        
-        touch files.txt
+        echo "scan_output<<EOF" >> $GITHUB_ENV
+        echo "$output" >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
 
-    - name: Count file exts
-      run: |
-        if [ -s files.txt ]; then
-          awk -F. '{print $NF}' files.txt | sort | uniq -c > ext-counts.txt
-        else
-          echo "No files found"
-        fi
-
-    - name: Notify Discord
+    - name: notify
+      if: env.scan_output != ''
       env:
-        WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       run: |
-        if [ -s files.txt ] && [ $(cat files.txt | wc -l) -gt 0 ]; then
-          file_count=$(cat files.txt | wc -l)
-          extension_counts=$(awk '{print $2 ": " $1}' ext-counts.txt | tr '\n' '\n')
-          target_domain=$(echo "${{ env.TARGET }}" | awk -F/ '{print $3}')
-          curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"Found $file_count high-critic files of $target_domain! \n↓ Found exts ↓ \n$extension_counts\"}" $WEBHOOK_URL
+        if [ -n "$DISCORD_WEBHOOK_URL" ]; then
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d "${{ env.scan_output }}" \
+               $DISCORD_WEBHOOK_URL
+        else
+          echo "Discord webhook URL not configured"
+          exit 1
         fi
