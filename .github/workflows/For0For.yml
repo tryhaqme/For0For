@@ -8,19 +8,28 @@ on:
       target_url:
         description: 'Enter your target!'
         required: true
-        default: $(curl -s https://github.com/arkadiyt/bounty-targets-data/raw/refs/heads/main/data/wildcards.txt | shuf -n 1)
 
 jobs:
-  fetch-and-notify:
+  For0For:
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v2
 
+    - name: Assign target
+      id: assign-target
+      run: |
+        if [ -z "${{ github.event.inputs.target_url }}" ]; then
+          target_url=$(curl -s https://github.com/arkadiyt/bounty-targets-data/raw/refs/heads/main/data/wildcards.txt | shuf -n 1)
+        else
+          target_url="${{ github.event.inputs.target_url }}"
+        fi
+        echo "target_url=$target_url" >> $GITHUB_ENV
+
     - name: Fetch files from archive.org
       run: |
-        wget -qO- "https://web.archive.org/cdx/search/cdx?url=${{ github.event.inputs.target_url }}/*&collapse=urlkey&output=text&fl=original&filter=original:.*\.(sql|db|backup|yml|yaml|ini|config|crt|pem|key|asc)$" | while read file; do echo 'https://web.archive.org/web/*/'$file >> files.txt; done
+        wget -qO- "https://web.archive.org/cdx/search/cdx?url=${{ env.target_url }}/*&collapse=urlkey&output=text&fl=original&filter=original:.*\.(sql|db|backup|yml|yaml|ini|config|crt|pem|key|asc)$" | while read file; do echo 'https://web.archive.org/web/*/'$file >> files.txt; done
 
     - name: Count file exts
       run: |
@@ -33,5 +42,5 @@ jobs:
         file_count=$(cat files.txt | wc -l)
         if [ "$file_count" -gt 0 ]; then
           extension_counts=$(awk '{print $2 ": " $1}' ext-counts.txt | tr '\n' '\n')
-          target_domain=$(echo "${{ github.event.inputs.target_url }}" | awk -F/ '{print $3}')
+          target_domain=$(echo "${{ env.target_url }}" | awk -F/ '{print $3}')
           curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"Found $file_count high-critic files of $target_domain! \n↓ Found exts ↓ \n$extension_counts\"}" $WEBHOOK_URL
