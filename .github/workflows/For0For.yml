@@ -21,13 +21,14 @@ jobs:
       id: assign-target
       run: |
         if [ -n "${{ github.event.inputs.target_url }}" ]; then
-          TARGET="${{ github.event.inputs.target_url }}"
+          echo "TARGET=${{ github.event.inputs.target_url }}" >> $GITHUB_ENV
         else
-          TARGET=$(curl -s https://github.com/arkadiyt/bounty-targets-data/raw/refs/heads/main/data/wildcards.txt | shuf -n 1)
+          echo "TARGET=$(curl -s https://github.com/arkadiyt/bounty-targets-data/raw/refs/heads/main/data/wildcards.txt | shuf -n 1)" >> $GITHUB_ENV
         fi
-        echo "Selected target: $TARGET"
         
-        wget -qO- "https://web.archive.org/cdx/search/cdx?url=${TARGET}/*&collapse=urlkey&output=text&fl=original&filter=original:.*\.(sql|db|backup|yml|yaml|ini|config|crt|pem|key|asc)$" | \
+        echo "Selected target: ${{ env.TARGET }}"
+        
+        wget -qO- "https://web.archive.org/cdx/search/cdx?url=${{ env.TARGET }}/*&collapse=urlkey&output=text&fl=original&filter=original:.*\.(sql|db|backup|yml|yaml|ini|csv|config|crt|pem|key|asc)$" | \
         while read file; do 
           echo "https://web.archive.org/web/*/$file" >> files.txt
         done
@@ -49,6 +50,6 @@ jobs:
         if [ -s files.txt ] && [ $(cat files.txt | wc -l) -gt 0 ]; then
           file_count=$(cat files.txt | wc -l)
           extension_counts=$(awk '{print $2 ": " $1}' ext-counts.txt | tr '\n' '\n')
-          target_domain=$(echo "$TARGET" | awk -F/ '{print $3}')
+          target_domain=$(echo "${{ env.TARGET }}" | awk -F/ '{print $3}')
           curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"Found $file_count high-critic files of $target_domain! \n↓ Found exts ↓ \n$extension_counts\"}" $WEBHOOK_URL
         fi
